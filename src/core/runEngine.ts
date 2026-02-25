@@ -1,10 +1,14 @@
 import { run } from "@openai/agents";
+import { db, initDB } from "../db/client.js";
+
+initDB();
 let thread: any[] = [];
 export async function runWithStreaming(agent: any, input: string) {
     const context = {
     sessionId: crypto.randomUUID(),
     storagePath: "./storage",
-    startedAt: new Date()
+    startedAt: new Date(),
+    db
   };
     thread.push({ role: "user", content: input });
 
