@@ -9,6 +9,8 @@ export const resumeExtractionAgent =
 
     instructions: `
 You extract structured resume data.
+Only proceed if user is authenticated.
+If not, tell them to login first.
 
 If user provides resume path:
 1. Call upload_resume tool.

@@ -27,5 +27,5 @@ export async function runWithStreaming(agent: any, input: string) {
   
   thread = result.history;
 
-  console.log("\n\nStructured Output:\n", result.finalOutput);
+  //console.log("\n\nStructured Output:\n", result.finalOutput);
 }

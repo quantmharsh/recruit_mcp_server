@@ -10,6 +10,9 @@ export const uploadResumeTool = tool({
     path: z.string().describe("Path of resume text file")
   }),
   execute: async ({ path }, ctx?: RunContext<AppContext>) => {
+if (!ctx?.context.userId) {
+  throw new Error("Unauthorized: Please login before uploading resume.");
+}
     console.log("Session:", ctx?.context.sessionId);
 
     const content = await fs.readFile(path, "utf-8");
