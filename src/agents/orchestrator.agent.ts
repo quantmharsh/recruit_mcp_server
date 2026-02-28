@@ -3,9 +3,11 @@ import { resumeExtractionAgent } from "./resumeExtraction.agent.js";
 import { resumeAdvisorAgent } from "./resumeAdvisor.agent.js";
 import { registerUserTool, loginUserTool, verifyOtpTool } from "../tools/auth.tool.js";
 import type { AppContext } from "../context/app.context.js";
+import { recruitmentInputGuardrail } from "../guardrails/domain.guardrail.js";
 
 export const recruitmentOrchestrator = new Agent<AppContext>({
   name: "Recruitment Orchestrator",
+  inputGuardrails: [recruitmentInputGuardrail],
 instructions: ({ context }) => `
 You are the main recruitment AI for RecruitMCP.
 Welcome the user politely when appropriate.
