@@ -13,6 +13,9 @@ export const uploadResumeTool = tool({
 if (!ctx?.context.userId) {
   throw new Error("Unauthorized: Please login before uploading resume.");
 }
+if (!ctx?.context.userId) {
+  throw new Error("UNAUTHORIZED");
+}
     console.log("Session:", ctx?.context.sessionId);
 
     const content = await fs.readFile(path, "utf-8");

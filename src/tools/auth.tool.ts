@@ -16,6 +16,8 @@ export const loginUserTool = tool({
   }),
   execute: async ({ email }, ctx?: RunContext<AppContext>) => {
     const db = ctx!.context.db;
+    ctx!.context.authStatus = "OTP_PENDING";
+ctx!.context.pendingEmail = email;
 
     const user = db
       .prepare("SELECT * FROM users WHERE email = ?")
@@ -83,6 +85,7 @@ export const verifyOtpTool = tool({
   }),
   execute: async ({ email, otp }, ctx?: RunContext<AppContext>) => {
     const db = ctx!.context.db;
+    
 
     const user = db
       .prepare("SELECT * FROM users WHERE email = ?")
@@ -118,6 +121,8 @@ export const verifyOtpTool = tool({
 
     ctx!.context.userId = user.id;
     ctx!.context.role = user.role;
+    ctx!.context.authStatus = "AUTHENTICATED";
+    ctx!.context.pendingEmail = undefined;
 
     return `Login successful. Welcome ${user.name}!`;
   },

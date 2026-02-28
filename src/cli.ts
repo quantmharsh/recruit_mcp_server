@@ -1,7 +1,7 @@
 import readline from "node:readline/promises";
 import { candidateAgent } from "./agents/candidate.agent.js";
 import { recruitmentOrchestrator } from "./agents/orchestrator.agent.js";
-import { runWithStreaming } from "./core/runEngine.js";
+import { runWithoutStreaming } from "./core/runEngine.js";
 
 export async function startCLI() {
   const rl = readline.createInterface({
@@ -15,7 +15,7 @@ export async function startCLI() {
     const input = await rl.question("\n> ");
     if (input === "exit") break;
 
-    await runWithStreaming(recruitmentOrchestrator, input);
+    await runWithoutStreaming(recruitmentOrchestrator, input);
   }
 
   rl.close();
