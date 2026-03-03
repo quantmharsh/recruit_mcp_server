@@ -27,6 +27,7 @@ export const fetchResumeTool = tool({
         {
             return null;
         }
+        console.log("DEBUG: Fetched Resume from DB:", resume);
        return {
       name: resume?.name,
       email: resume.email,
