@@ -20,8 +20,8 @@ export const saveResumeTool = tool({
 
     const db = ctx.context.db;
 
-    db.prepare(`DELETE FROM resumes WHERE user_id = ?`)
-      .run(ctx.context.userId);
+    // remove any existing resume for this user and insert the new one
+    db.prepare(`DELETE FROM resumes WHERE user_id = ?`).run(ctx.context.userId);
 
     db.prepare(`
       INSERT INTO resumes 
@@ -35,6 +35,13 @@ export const saveResumeTool = tool({
       data.yearsOfExperience,
       JSON.stringify(data.education)
     );
+
+    // store the data on context so the engine knows the tool executed
+    if (ctx.context) {
+      ctx.context.lastSavedResume = data;
+    }
+
+    console.log("DEBUG: save_resume tool - data saved for user", ctx.context?.userId, data);
 
     return "Resume saved successfully.";
   }

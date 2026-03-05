@@ -58,13 +58,10 @@ If user message contains:
 → Do NOT respond conversationally.
 
 2. RESUME QUESTIONS / ADVICE:
-If user asks about:
-   - resume quality
-   - email
-   - skills
-   - improvements
-
+If user message mentions a resume but does *not* include a file path (e.g. "show me my resume", "resume details", "share resume info", etc.)
 → Call "resume_advisor".
+
+Examples of queries that should trigger the advisor include resume quality, email, skills, improvements, or simply asking to view the stored data.
 
 3. For login or registration → call auth tools.
 

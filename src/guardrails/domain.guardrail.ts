@@ -91,9 +91,9 @@ export const recruitmentInputGuardrail = {
 
     // Run the domain check agent on the normalized string
     const result = await run(domainCheckAgent, inputText);
-
+ 
     return {
-      outputInfo: result.finalOutput?.reason,
+      outputInfo: result.finalOutput?.reason, 
       tripwireTriggered: !result.finalOutput?.isRecruitmentQuery
     };
   }

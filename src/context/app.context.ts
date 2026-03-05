@@ -9,4 +9,8 @@ export interface AppContext {
   pendingEmail?: string | undefined;
   userId?: number;
   role?: "candidate" | "recruiter";
+
+  // helper property used by the engine to know if a resume
+  // save operation already took place during an agent run.
+  lastSavedResume?: unknown;
 }
