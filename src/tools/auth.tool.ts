@@ -16,8 +16,6 @@ export const loginUserTool = tool({
   }),
   execute: async ({ email }, ctx?: RunContext<AppContext>) => {
     const db = ctx!.context.db;
-    ctx!.context.authStatus = "OTP_PENDING";
-ctx!.context.pendingEmail = email;
 
     const user = db
       .prepare("SELECT * FROM users WHERE email = ?")
@@ -26,6 +24,9 @@ ctx!.context.pendingEmail = email;
     if (!user) {
       return "User not found. Please register first.";
     }
+
+    ctx!.context.authStatus = "OTP_PENDING";
+    ctx!.context.pendingEmail = email;
 
     const otp = generateOtp();
     const expiresAt = new Date(Date.now() + 5 * 60 * 1000).toISOString();

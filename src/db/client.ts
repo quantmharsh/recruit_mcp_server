@@ -67,6 +67,21 @@ export function initDB() {
       FOREIGN KEY(resume_id) REFERENCES resumes(id),
       FOREIGN KEY(job_id) REFERENCES jobs(id)
     );
+
+    CREATE TABLE IF NOT EXISTS interviews (
+      id INTEGER PRIMARY KEY AUTOINCREMENT,
+      job_id INTEGER NOT NULL,
+      recruiter_id INTEGER NOT NULL,
+      candidate_id INTEGER NOT NULL,
+      scheduled_at TEXT NOT NULL,
+      mode TEXT NOT NULL,
+      details TEXT NOT NULL,
+      status TEXT DEFAULT 'scheduled',
+      created_at TEXT DEFAULT CURRENT_TIMESTAMP,
+      FOREIGN KEY(job_id) REFERENCES jobs(id),
+      FOREIGN KEY(recruiter_id) REFERENCES users(id),
+      FOREIGN KEY(candidate_id) REFERENCES users(id)
+    );
   `);
 
   console.log("✅ Database initialized");
