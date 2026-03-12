@@ -11,7 +11,11 @@ export const saveResumeTool = tool({
     email: z.string(),
     skills: z.array(z.string()),
     yearsOfExperience: z.number(),
-    education: z.array(z.string())
+    education: z.array(z.string()),
+    // Optional metadata to keep richer profile context for the candidate.
+    summary: z.string().optional(),
+    certifications: z.array(z.string()).optional(),
+    links: z.array(z.string()).optional()
   }),
   execute: async (data, ctx?: RunContext<AppContext>) => {
     if (!ctx?.context.userId) {
@@ -25,15 +29,18 @@ export const saveResumeTool = tool({
 
     db.prepare(`
       INSERT INTO resumes 
-      (user_id, name, email, skills, years_of_experience, education)
-      VALUES (?, ?, ?, ?, ?, ?)
+      (user_id, name, email, skills, years_of_experience, education, summary, certifications, links)
+      VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)
     `).run(
       ctx.context.userId,
       data.name,
       data.email,
       JSON.stringify(data.skills),
       data.yearsOfExperience,
-      JSON.stringify(data.education)
+      JSON.stringify(data.education),
+      data.summary ?? "",
+      JSON.stringify(data.certifications ?? []),
+      JSON.stringify(data.links ?? [])
     );
 
     // store the data on context so the engine knows the tool executed

@@ -43,6 +43,9 @@ export function initDB() {
       skills TEXT,
       years_of_experience INTEGER,
       education TEXT,
+      summary TEXT DEFAULT '',
+      certifications TEXT DEFAULT '[]',
+      links TEXT DEFAULT '[]',
       created_at TEXT DEFAULT CURRENT_TIMESTAMP,
       FOREIGN KEY(user_id) REFERENCES users(id)
     );
@@ -63,6 +66,7 @@ export function initDB() {
       resume_id INTEGER,
       job_id INTEGER,
       status TEXT DEFAULT 'applied',
+      cover_letter TEXT DEFAULT '',
       created_at TEXT DEFAULT CURRENT_TIMESTAMP,
       FOREIGN KEY(resume_id) REFERENCES resumes(id),
       FOREIGN KEY(job_id) REFERENCES jobs(id)
@@ -85,4 +89,36 @@ export function initDB() {
   `);
 
   console.log("✅ Database initialized");
+}
+
+// Add optional resume columns when migrating older databases.
+export function ensureResumeColumns() {
+  const existingColumns = db
+    .prepare("PRAGMA table_info(resumes)")
+    .all()
+    .map((row) => (row as { name: string }).name);
+
+  const extraColumns = [
+    { name: "summary", definition: "summary TEXT DEFAULT ''" },
+    { name: "certifications", definition: "certifications TEXT DEFAULT '[]'" },
+    { name: "links", definition: "links TEXT DEFAULT '[]'" }
+  ];
+
+  for (const column of extraColumns) {
+    if (!existingColumns.includes(column.name)) {
+      db.exec(`ALTER TABLE resumes ADD COLUMN ${column.definition};`);
+    }
+  }
+}
+
+// Keep the applications table in sync by adding the cover_letter column on demand.
+export function ensureApplicationsColumns() {
+  const appColumns = db
+    .prepare("PRAGMA table_info(applications)")
+    .all()
+    .map((row) => (row as { name: string }).name);
+
+  if (!appColumns.includes("cover_letter")) {
+    db.exec("ALTER TABLE applications ADD COLUMN cover_letter TEXT DEFAULT '';");
+  }
 }
