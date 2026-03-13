@@ -23,10 +23,16 @@ type DbUserRow = {
 type DbJobRow = {
   id: number;
   recruiter_id: number;
+  company_name: string | null;
   title: string;
   description: string;
+  location: string | null;
   required_skills: string;
   salary_range?: string | null;
+  employment_type: string | null;
+  experience_level: string | null;
+  remote_friendly: number | null;
+  contact_email: string | null;
   created_at?: string;
 };
 
@@ -51,28 +57,66 @@ export const createJobTool = tool({
   parameters: z.object({
     title: z.string().min(2),
     description: z.string().min(10),
+    companyName: z.string().min(2),
+    location: z.string().min(2),
     requiredSkills: z.array(z.string().min(1)).min(1),
     salaryRange: z
       .string()
       .describe("Salary range text. Use empty string if not specified by recruiter.")
+      .default(""),
+    employmentType: z
+      .enum(["full_time", "part_time", "contract", "internship", "temporary", "freelance"])
+      .optional()
+      .default("full_time"),
+    experienceLevel: z
+      .enum(["entry", "mid", "senior", "lead", "director"])
+      .optional()
+      .default("mid"),
+    remoteFriendly: z.boolean().default(false),
+    contactEmail: z
+      .string()
+      .email()
+      .or(z.literal(""))
+      .describe("Email address candidates can reach out to")
+      .default("")
   }),
-  execute: async ({ title, description, requiredSkills, salaryRange }, ctx?: RunContext<AppContext>) => {
+  execute: async (
+    {
+      title,
+      description,
+      companyName,
+      location,
+      requiredSkills,
+      salaryRange,
+      employmentType,
+      experienceLevel,
+      remoteFriendly,
+      contactEmail
+    },
+    ctx?: RunContext<AppContext>
+  ) => {
     assertRecruiter(ctx);
 
     const db = ctx.context.db;
     const result = db
       .prepare(
         `
-      INSERT INTO jobs (recruiter_id, title, description, required_skills, salary_range)
-      VALUES (?, ?, ?, ?, ?)
+      INSERT INTO jobs (recruiter_id, company_name, title, description, location, required_skills, salary_range, employment_type, experience_level, remote_friendly, contact_email)
+      VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
     `
       )
       .run(
         ctx.context.userId,
+        companyName.trim(),
         title.trim(),
         description.trim(),
+        location.trim(),
         JSON.stringify(requiredSkills.map((s) => s.trim()).filter(Boolean)),
-        salaryRange.trim() === "" ? null : salaryRange.trim()
+        salaryRange.trim() === "" ? null : salaryRange.trim(),
+        employmentType?.trim() ?? "",
+        experienceLevel?.trim() ?? "",
+        remoteFriendly ? 1 : 0,
+        contactEmail?.trim() ?? ""
       );
 
     return {
@@ -165,6 +209,12 @@ export const findMatchedCandidatesTool = tool({
       job: {
         id: job.id,
         title: job.title,
+        companyName: job.company_name ?? "",
+        location: job.location ?? "",
+        employmentType: job.employment_type ?? "",
+        experienceLevel: job.experience_level ?? "",
+        remoteFriendly: Boolean(job.remote_friendly),
+        contactEmail: job.contact_email ?? "",
         requiredSkills
       },
       totalMatches: matches.length,
@@ -184,7 +234,7 @@ export const listMyJobsTool = tool({
     const jobs = db
       .prepare(
         `
-      SELECT id, title, description, required_skills, salary_range, created_at
+      SELECT id, company_name, title, description, location, required_skills, salary_range, employment_type, experience_level, remote_friendly, contact_email, created_at
       FROM jobs
       WHERE recruiter_id = ?
       ORDER BY id DESC
@@ -194,10 +244,16 @@ export const listMyJobsTool = tool({
 
     return jobs.map((job) => ({
       id: job.id,
+      companyName: job.company_name ?? "",
       title: job.title,
       description: job.description,
+      location: job.location ?? "",
       requiredSkills: JSON.parse(job.required_skills ?? "[]"),
       salaryRange: job.salary_range ?? "",
+      employmentType: job.employment_type ?? "",
+      experienceLevel: job.experience_level ?? "",
+      remoteFriendly: Boolean(job.remote_friendly),
+      contactEmail: job.contact_email ?? "",
       createdAt: job.created_at
     }));
   }

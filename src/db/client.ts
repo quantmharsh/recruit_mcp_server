@@ -53,10 +53,16 @@ export function initDB() {
     CREATE TABLE IF NOT EXISTS jobs (
       id INTEGER PRIMARY KEY AUTOINCREMENT,
       recruiter_id INTEGER,
+      company_name TEXT,
       title TEXT,
       description TEXT,
+      location TEXT,
       required_skills TEXT,
       salary_range TEXT,
+      employment_type TEXT,
+      experience_level TEXT,
+      remote_friendly BOOLEAN DEFAULT 0,
+      contact_email TEXT,
       created_at TEXT DEFAULT CURRENT_TIMESTAMP,
       FOREIGN KEY(recruiter_id) REFERENCES users(id)
     );
@@ -120,5 +126,27 @@ export function ensureApplicationsColumns() {
 
   if (!appColumns.includes("cover_letter")) {
     db.exec("ALTER TABLE applications ADD COLUMN cover_letter TEXT DEFAULT '';");
+  }
+}
+
+export function ensureJobColumns() {
+  const jobColumns = db
+    .prepare("PRAGMA table_info(jobs)")
+    .all()
+    .map((row) => (row as { name: string }).name);
+
+  const extraColumns = [
+    { name: "company_name", definition: "company_name TEXT DEFAULT ''" },
+    { name: "location", definition: "location TEXT DEFAULT ''" },
+    { name: "employment_type", definition: "employment_type TEXT DEFAULT ''" },
+    { name: "experience_level", definition: "experience_level TEXT DEFAULT ''" },
+    { name: "remote_friendly", definition: "remote_friendly BOOLEAN DEFAULT 0" },
+    { name: "contact_email", definition: "contact_email TEXT DEFAULT ''" }
+  ];
+
+  for (const column of extraColumns) {
+    if (!jobColumns.includes(column.name)) {
+      db.exec(`ALTER TABLE jobs ADD COLUMN ${column.definition};`);
+    }
   }
 }

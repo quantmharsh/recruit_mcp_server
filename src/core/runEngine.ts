@@ -1,11 +1,12 @@
 import { run } from "@openai/agents";
-import { db, initDB, ensureResumeColumns, ensureApplicationsColumns } from "../db/client.js";
+import { db, initDB, ensureResumeColumns, ensureApplicationsColumns, ensureJobColumns } from "../db/client.js";
 import type { AppContext } from "../context/app.context.js";
 import { InputGuardrailTripwireTriggered } from "@openai/agents";
 
 initDB();
 ensureResumeColumns(); // make sure new resume columns exist before the CLI runs
 ensureApplicationsColumns(); // keep cover_letter column available for application inserts
+ensureJobColumns(); // keep new job metadata fields available
 
 let thread: any[] = [];
 
