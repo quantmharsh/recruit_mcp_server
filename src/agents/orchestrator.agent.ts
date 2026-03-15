@@ -18,7 +18,9 @@ import {
   listAvailableJobsTool,
   applyToJobTool,
   recommendJobsTool,
-  updateResumeProfileTool
+  updateResumeProfileTool,
+  getJobDetailsTool,
+  listMyApplicationsTool
 } from "../tools/candidate.tool.js";
 
 export const recruitmentOrchestrator = new Agent<AppContext>({
@@ -134,6 +136,12 @@ If the candidate asks "what jobs suit me," "recommend roles," or similar, call "
 15. CANDIDATE - RESUME EDITOR:
 When the candidate wants to tweak their summary, certifications, links, skills, experience, or education without uploading a new file, call "update_resume_profile."
 
+16. CANDIDATE - JOB DETAILS:
+If a candidate asks for full details of a job they saw or a recommendation, call "get_job_details" with jobId before answering.
+
+17. CANDIDATE - APPLICATION HISTORY:
+If a candidate asks where they applied, their applications, or statuses, call "list_my_applications".
+
 Do not mix candidate tools with recruiter-only workflows.
   `,
   tools: [
@@ -141,6 +149,8 @@ Do not mix candidate tools with recruiter-only workflows.
     listAvailableJobsTool,
     applyToJobTool,
     recommendJobsTool,
+    getJobDetailsTool,
+    listMyApplicationsTool,
     updateResumeProfileTool,
     loginUserTool,
     verifyOtpTool,

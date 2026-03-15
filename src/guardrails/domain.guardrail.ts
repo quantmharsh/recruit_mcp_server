@@ -89,6 +89,20 @@ export const recruitmentInputGuardrail = {
     // Normalize to plain text before sending to the domain-check agent
     const inputText = normalizeInputToString(args.input);
 
+    // Fast-path: treat OTPs and brief auth phrases as in-scope so they aren't rejected
+    // by the domain guardrail (e.g., a 6-digit code like "245123").
+    const trimmed = inputText.trim().toLowerCase();
+    const isLikelyOtp = /^\d{4,8}$/.test(trimmed);
+    const isAuthPhrase = /(otp|code|login|log me in|verify|verification|email|register)/i.test(
+      inputText
+    );
+    if (isLikelyOtp || isAuthPhrase) {
+      return {
+        outputInfo: "Auth/OTP input auto-allowed",
+        tripwireTriggered: false
+      };
+    }
+
     // Run the domain check agent on the normalized string
     const result = await run(domainCheckAgent, inputText);
  

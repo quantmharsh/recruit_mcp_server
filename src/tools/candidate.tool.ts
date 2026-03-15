@@ -4,10 +4,16 @@ import type { AppContext } from "../context/app.context.js";
 
 type DbJobRow = {
   id: number;
+  company_name: string | null;
   title: string;
   description: string;
   required_skills: string | null;
   salary_range: string | null;
+  location: string | null;
+  employment_type: string | null;
+  experience_level: string | null;
+  remote_friendly: number | null;
+  contact_email: string | null;
   created_at: string | null;
 };
 
@@ -93,16 +99,63 @@ export const listAvailableJobsTool = tool({
 
     const jobs = matches.slice(0, limit).map((job) => ({
       id: job.id,
+      companyName: job.company_name ?? "",
       title: job.title,
       description: job.description,
       requiredSkills: parseSkills(job.required_skills),
       salaryRange: job.salary_range ?? "",
+      location: job.location ?? "",
+      employmentType: job.employment_type ?? "",
+      experienceLevel: job.experience_level ?? "",
+      remoteFriendly: Boolean(job.remote_friendly),
+      contactEmail: job.contact_email ?? "",
       postedAt: job.created_at ?? ""
     }));
 
     return {
       totalJobs: matches.length,
       jobs
+    };
+  }
+});
+
+export const getJobDetailsTool = tool({
+  name: "get_job_details",
+  description: "Fetch full details for a specific job so candidates can review before applying.",
+  parameters: z.object({
+    jobId: z.number().int().positive()
+  }),
+  execute: async ({ jobId }, ctx?: RunContext<AppContext>) => {
+    assertCandidate(ctx);
+
+    const job = ctx.context.db
+      .prepare(
+        `
+        SELECT id, company_name, title, description, location, required_skills, salary_range,
+               employment_type, experience_level, remote_friendly, contact_email, created_at
+        FROM jobs
+        WHERE id = ?
+      `
+      )
+      .get(jobId) as DbJobRow | undefined;
+
+    if (!job) {
+      throw new Error("Job not found.");
+    }
+
+    return {
+      id: job.id,
+      companyName: job.company_name ?? "",
+      title: job.title,
+      description: job.description,
+      location: job.location ?? "",
+      requiredSkills: parseSkills(job.required_skills),
+      salaryRange: job.salary_range ?? "",
+      employmentType: job.employment_type ?? "",
+      experienceLevel: job.experience_level ?? "",
+      remoteFriendly: Boolean(job.remote_friendly),
+      contactEmail: job.contact_email ?? "",
+      postedAt: job.created_at ?? ""
     };
   }
 });
@@ -161,6 +214,92 @@ export const applyToJobTool = tool({
   }
 });
 
+export const listMyApplicationsTool = tool({
+  name: "list_my_applications",
+  description: "Show jobs the candidate has applied to with current status and details.",
+  parameters: z.object({
+    limit: z.number().int().positive().default(20)
+  }),
+  execute: async ({ limit }, ctx?: RunContext<AppContext>) => {
+    assertCandidate(ctx);
+
+    const resume = ctx.context.db
+      .prepare("SELECT id FROM resumes WHERE user_id = ?")
+      .get(ctx.context.userId) as { id: number } | undefined;
+
+    if (!resume) {
+      throw new Error("Upload your resume before viewing applications.");
+    }
+
+    const rows = ctx.context.db
+      .prepare(
+        `
+        SELECT
+          a.id              AS application_id,
+          a.status          AS application_status,
+          a.created_at      AS applied_at,
+          a.cover_letter    AS cover_letter,
+          j.id              AS job_id,
+          j.company_name    AS company_name,
+          j.title           AS title,
+          j.description     AS description,
+          j.location        AS location,
+          j.required_skills AS required_skills,
+          j.salary_range    AS salary_range,
+          j.employment_type AS employment_type,
+          j.experience_level AS experience_level,
+          j.remote_friendly AS remote_friendly,
+          j.contact_email   AS contact_email,
+          j.created_at      AS job_created_at
+        FROM applications a
+        JOIN jobs j ON a.job_id = j.id
+        WHERE a.resume_id = ?
+        ORDER BY a.created_at DESC
+        LIMIT ?
+      `
+      )
+      .all(resume.id, limit) as Array<{
+        application_id: number;
+        application_status: string;
+        applied_at: string;
+        cover_letter: string;
+        job_id: number;
+        company_name: string | null;
+        title: string;
+        description: string;
+        location: string | null;
+        required_skills: string | null;
+        salary_range: string | null;
+        employment_type: string | null;
+        experience_level: string | null;
+        remote_friendly: number | null;
+        contact_email: string | null;
+        job_created_at: string | null;
+      }>;
+
+    return rows.map((row) => ({
+      applicationId: row.application_id,
+      status: row.application_status,
+      appliedAt: row.applied_at,
+      coverLetter: row.cover_letter ?? "",
+      job: {
+        id: row.job_id,
+        companyName: row.company_name ?? "",
+        title: row.title,
+        description: row.description,
+        location: row.location ?? "",
+        requiredSkills: parseSkills(row.required_skills),
+        salaryRange: row.salary_range ?? "",
+        employmentType: row.employment_type ?? "",
+        experienceLevel: row.experience_level ?? "",
+        remoteFriendly: Boolean(row.remote_friendly),
+        contactEmail: row.contact_email ?? "",
+        postedAt: row.job_created_at ?? ""
+      }
+    }));
+  }
+});
+
 // Recommend jobs that align with the candidate's stored skills.
 export const recommendJobsTool = tool({
   name: "recommend_jobs",
@@ -197,13 +336,21 @@ export const recommendJobsTool = tool({
 
         return {
           jobId: job.id,
+          companyName: job.company_name ?? "",
           title: job.title,
+          description: job.description,
+          location: job.location ?? "",
           matchPercent,
           requiredSkills: parseSkills(job.required_skills),
           matchedSkills: overlap,
           missingSkills,
           quickUpskill: missingSkills.slice(0, 3),
-          salaryRange: job.salary_range ?? ""
+          salaryRange: job.salary_range ?? "",
+          employmentType: job.employment_type ?? "",
+          experienceLevel: job.experience_level ?? "",
+          remoteFriendly: Boolean(job.remote_friendly),
+          contactEmail: job.contact_email ?? "",
+          postedAt: job.created_at ?? ""
         };
       })
       .filter((item) => item.matchPercent >= minMatchPercent)

@@ -12,4 +12,7 @@
 - **Email integration**: `src/services/email.service.ts` sends mail through Resend. OTP login and interview scheduling depend on `.env` containing a valid `RESEND_API_KEY`.
 - **Operational note**: The repository memory file is `memory.md` (lowercase), even if older instructions mention `MEMORY.md`.
 
+- **2026-03-15**: Candidates now get full job details and history: `list_available_jobs` and `recommend_jobs` include company/location/employment/experience/remote/contact metadata; new tools `get_job_details` and `list_my_applications` were added and wired into `recruitmentOrchestrator` so candidates can view job details and their application statuses.
+- **2026-03-15**: Domain guardrail now auto-allows OTP/login phrases (including bare numeric codes) to prevent false rejections during authentication.
+
 > Update this file whenever you make major architecture or functionality changes so future runs know what shifted.
