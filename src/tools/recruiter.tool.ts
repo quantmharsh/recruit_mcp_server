@@ -1,6 +1,6 @@
 import { tool, RunContext } from "@openai/agents";
 import { z } from "zod";
-import type { AppContext } from "../context/app.context.js";
+import type { AppContext, RecruiterJobDraft } from "../context/app.context.js";
 import { sendEmail } from "../services/email.service.js";
 
 type DbResumeRow = {
@@ -36,6 +36,21 @@ type DbJobRow = {
   created_at?: string;
 };
 
+type ApplicationStatus = "applied" | "shortlisted" | "interview_scheduled" | "rejected" | "hired";
+
+type CompleteJobDraft = {
+  title: string;
+  description: string;
+  companyName: string;
+  location: string;
+  requiredSkills: string[];
+  salaryRange: string;
+  employmentType: "full_time" | "part_time" | "contract" | "internship" | "temporary" | "freelance";
+  experienceLevel: "entry" | "mid" | "senior" | "lead" | "director";
+  remoteFriendly: boolean;
+  contactEmail: string;
+};
+
 function assertRecruiter(ctx?: RunContext<AppContext>): asserts ctx is RunContext<AppContext> {
   if (!ctx?.context.userId || ctx.context.authStatus !== "AUTHENTICATED") {
     throw new Error("UNAUTHORIZED: Please login first.");
@@ -49,6 +64,198 @@ function assertAuthenticated(ctx?: RunContext<AppContext>): asserts ctx is RunCo
   if (!ctx?.context.userId || ctx.context.authStatus !== "AUTHENTICATED") {
     throw new Error("UNAUTHORIZED: Please login first.");
   }
+}
+
+// Normalize recruiter free-text values into the exact enum values expected by the tool layer.
+function normalizeEmploymentType(value?: string) {
+  const normalized = value?.toLowerCase().trim().replace(/[\s-]+/g, "_");
+  if (
+    normalized === "full_time" ||
+    normalized === "part_time" ||
+    normalized === "contract" ||
+    normalized === "internship" ||
+    normalized === "temporary" ||
+    normalized === "freelance"
+  ) {
+    return normalized;
+  }
+  return undefined;
+}
+
+function normalizeExperienceLevel(value?: string) {
+  const normalized = value?.toLowerCase().trim();
+  if (
+    normalized === "entry" ||
+    normalized === "mid" ||
+    normalized === "senior" ||
+    normalized === "lead" ||
+    normalized === "director"
+  ) {
+    return normalized;
+  }
+  return undefined;
+}
+
+function normalizeBoolean(value?: string) {
+  const normalized = value?.toLowerCase().trim();
+  if (!normalized) return undefined;
+  if (["yes", "y", "true", "1", "remote", "remote-friendly"].includes(normalized)) return true;
+  if (["no", "n", "false", "0"].includes(normalized)) return false;
+  return undefined;
+}
+
+function normalizeSkillsList(value?: string) {
+  if (!value) return undefined;
+  const skills = value
+    .split(",")
+    .map((item) => item.trim())
+    .filter(Boolean);
+  return skills.length ? skills : undefined;
+}
+
+function normalizeOptionalText(value?: string) {
+  return value?.trim() ?? "";
+}
+
+// These regexes let the engine capture recruiter job details directly from labeled chat
+// messages such as "Job Title: Backend Engineer" or "Required Skills: Node.js, SQL".
+export function extractRecruiterJobDraft(input: string): Partial<RecruiterJobDraft> {
+  const draft: Partial<RecruiterJobDraft> = {};
+
+  const normalized = input.replace(/\r\n/g, "\n");
+  const lines = normalized.split("\n").map((line) => line.trim()).filter(Boolean);
+
+  for (const line of lines) {
+    const colonIndex = line.indexOf(":");
+    if (colonIndex === -1) continue;
+
+    const key = line.slice(0, colonIndex).trim().toLowerCase();
+    const value = line.slice(colonIndex + 1).trim();
+    if (!value) continue;
+
+    switch (key) {
+      case "job title":
+        draft.title = value;
+        break;
+      case "job description":
+        draft.description = value;
+        break;
+      case "company name":
+        draft.companyName = value;
+        break;
+      case "location":
+        draft.location = value;
+        break;
+      case "required skills": {
+        const skills = normalizeSkillsList(value);
+        if (skills) draft.requiredSkills = skills;
+        break;
+      }
+      case "salary range":
+        draft.salaryRange = normalizeOptionalText(value);
+        break;
+      case "employment type": {
+        const employmentType = normalizeEmploymentType(value);
+        if (employmentType) draft.employmentType = employmentType;
+        break;
+      }
+      case "experience level": {
+        const experienceLevel = normalizeExperienceLevel(value);
+        if (experienceLevel) draft.experienceLevel = experienceLevel;
+        break;
+      }
+      case "is the job remote-friendly?":
+      case "is the job remote-friendly":
+      case "remote friendly":
+        {
+          const remoteFriendly = normalizeBoolean(value);
+          if (typeof remoteFriendly === "boolean") draft.remoteFriendly = remoteFriendly;
+        }
+        break;
+      case "contact email":
+        draft.contactEmail = normalizeOptionalText(value);
+        break;
+      default:
+        break;
+    }
+  }
+
+  return draft;
+}
+
+export function mergeRecruiterJobDraft(
+  existing: RecruiterJobDraft | undefined,
+  incoming: Partial<RecruiterJobDraft>
+): RecruiterJobDraft {
+  const merged: RecruiterJobDraft = {
+    ...existing,
+    ...incoming
+  };
+
+  if (incoming.requiredSkills) {
+    merged.requiredSkills = incoming.requiredSkills;
+  }
+
+  return merged;
+}
+
+export function getMissingRecruiterJobFields(draft: RecruiterJobDraft) {
+  const missing: string[] = [];
+
+  if (!draft.title) missing.push("Job Title");
+  if (!draft.description) missing.push("Job Description");
+  if (!draft.companyName) missing.push("Company Name");
+  if (!draft.location) missing.push("Location");
+  if (!draft.requiredSkills?.length) missing.push("Required Skills");
+  if (!draft.employmentType) missing.push("Employment Type");
+  if (!draft.experienceLevel) missing.push("Experience Level");
+  if (typeof draft.remoteFriendly !== "boolean") missing.push("Remote Friendly");
+
+  return missing;
+}
+
+export function isRecruiterJobDraftComplete(
+  draft: RecruiterJobDraft | undefined
+): draft is CompleteJobDraft {
+  if (!draft) return false;
+
+  return (
+    !!draft.title &&
+    !!draft.description &&
+    !!draft.companyName &&
+    !!draft.location &&
+    !!draft.requiredSkills?.length &&
+    !!draft.employmentType &&
+    !!draft.experienceLevel &&
+    typeof draft.remoteFriendly === "boolean"
+  );
+}
+
+export function createJobRecord(
+  db: AppContext["db"],
+  recruiterId: number,
+  draft: CompleteJobDraft
+) {
+  return db
+    .prepare(
+      `
+      INSERT INTO jobs (recruiter_id, company_name, title, description, location, required_skills, salary_range, employment_type, experience_level, remote_friendly, contact_email)
+      VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+    `
+    )
+    .run(
+      recruiterId,
+      draft.companyName.trim(),
+      draft.title.trim(),
+      draft.description.trim(),
+      draft.location.trim(),
+      JSON.stringify(draft.requiredSkills.map((skill) => skill.trim()).filter(Boolean)),
+      draft.salaryRange.trim() === "" ? null : draft.salaryRange.trim(),
+      draft.employmentType,
+      draft.experienceLevel,
+      draft.remoteFriendly ? 1 : 0,
+      draft.contactEmail.trim()
+    );
 }
 
 export const createJobTool = tool({
@@ -96,28 +303,25 @@ export const createJobTool = tool({
     ctx?: RunContext<AppContext>
   ) => {
     assertRecruiter(ctx);
+    const recruiterId = ctx.context.userId;
+    if (!recruiterId) {
+      throw new Error("UNAUTHORIZED: Please login first.");
+    }
 
-    const db = ctx.context.db;
-    const result = db
-      .prepare(
-        `
-      INSERT INTO jobs (recruiter_id, company_name, title, description, location, required_skills, salary_range, employment_type, experience_level, remote_friendly, contact_email)
-      VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
-    `
-      )
-      .run(
-        ctx.context.userId,
-        companyName.trim(),
-        title.trim(),
-        description.trim(),
-        location.trim(),
-        JSON.stringify(requiredSkills.map((s) => s.trim()).filter(Boolean)),
-        salaryRange.trim() === "" ? null : salaryRange.trim(),
-        employmentType?.trim() ?? "",
-        experienceLevel?.trim() ?? "",
-        remoteFriendly ? 1 : 0,
-        contactEmail?.trim() ?? ""
-      );
+    // Both the tool and the deterministic CLI draft flow reuse the same insert helper
+    // so job creation behaves identically no matter how the recruiter provides details.
+    const result = createJobRecord(ctx.context.db, recruiterId, {
+      title,
+      description,
+      companyName,
+      location,
+      requiredSkills,
+      salaryRange,
+      employmentType,
+      experienceLevel,
+      remoteFriendly,
+      contactEmail
+    });
 
     return {
       message: "Job created successfully.",
@@ -256,6 +460,74 @@ export const listMyJobsTool = tool({
       contactEmail: job.contact_email ?? "",
       createdAt: job.created_at
     }));
+  }
+});
+
+export const updateApplicationStatusTool = tool({
+  name: "update_application_status",
+  description:
+    "Update a candidate application status for one of the current recruiter's jobs",
+  parameters: z.object({
+    jobId: z.number().int().positive(),
+    candidateUserId: z.number().int().positive(),
+    status: z.enum(["applied", "shortlisted", "interview_scheduled", "rejected", "hired"])
+  }),
+  execute: async ({ jobId, candidateUserId, status }, ctx?: RunContext<AppContext>) => {
+    assertRecruiter(ctx);
+    const db = ctx.context.db;
+
+    // Every recruiter-side mutation starts with an ownership check so one recruiter
+    // cannot modify another recruiter's pipeline.
+    const job = db
+      .prepare("SELECT id, title FROM jobs WHERE id = ? AND recruiter_id = ?")
+      .get(jobId, ctx.context.userId) as Pick<DbJobRow, "id" | "title"> | undefined;
+    if (!job) {
+      throw new Error("Job not found for current recruiter.");
+    }
+
+    const candidate = db
+      .prepare("SELECT id, name, email, role FROM users WHERE id = ?")
+      .get(candidateUserId) as DbUserRow | undefined;
+    if (!candidate || candidate.role !== "candidate") {
+      throw new Error("Candidate not found.");
+    }
+
+    const resume = db
+      .prepare("SELECT id FROM resumes WHERE user_id = ?")
+      .get(candidateUserId) as { id: number } | undefined;
+    if (!resume) {
+      throw new Error("Candidate resume not found.");
+    }
+
+    const application = db
+      .prepare("SELECT id, status FROM applications WHERE job_id = ? AND resume_id = ?")
+      .get(jobId, resume.id) as { id: number; status: ApplicationStatus } | undefined;
+    if (!application) {
+      throw new Error("Application not found for this candidate and job.");
+    }
+
+    db.prepare("UPDATE applications SET status = ? WHERE id = ?").run(status, application.id);
+
+    // Keep interview records aligned when the pipeline advances beyond the interview step.
+    if (status === "rejected" || status === "hired") {
+      db.prepare(
+        `
+        UPDATE interviews
+        SET status = ?
+        WHERE job_id = ?
+          AND candidate_id = ?
+      `
+      ).run(status, jobId, candidateUserId);
+    }
+
+    return {
+      message: `Application status updated to ${status}.`,
+      jobId,
+      candidateUserId,
+      candidateName: candidate.name,
+      previousStatus: application.status,
+      currentStatus: status
+    };
   }
 });
 

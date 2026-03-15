@@ -11,7 +11,8 @@ import {
   listMyJobsTool,
   getCandidateDetailsTool,
   listMyInterviewsTool,
-  listJobCandidatesTool
+  listJobCandidatesTool,
+  updateApplicationStatusTool
 } from "../tools/recruiter.tool.js";
 import {
   listAvailableJobsTool,
@@ -105,7 +106,12 @@ If recruiter asks for more details/profile/resume of a matched candidate
 If recruiter asks "show candidates for job X" or "list job applicants"
 - Call "list_job_candidates" with jobId.
 
-10. INTERVIEW STATUS FOR ANY LOGGED-IN USER:
+10. RECRUITER - UPDATE APPLICATION STATUS:
+If recruiter asks to reject, hire, shortlist, or otherwise update a candidate status
+- Call "update_application_status" with jobId, candidateUserId, and the target status.
+- Use this instead of saying you will update it later.
+
+11. INTERVIEW STATUS FOR ANY LOGGED-IN USER:
 If user asks about scheduled interviews, interview list, or upcoming interview
 - Call "list_my_interviews".
 - Never claim you do not have access without calling this tool first.
@@ -116,16 +122,16 @@ Always use the correct specialist tool.
 --------------------------------------------------
 CANDIDATE ACTIONS (AUTHENTICATED role=candidate):
 
-11. CANDIDATE - LIST JOBS:
+12. CANDIDATE - LIST JOBS:
 If a logged-in candidate asks to browse jobs/opportunities or mentions specific skills, call "list_available_jobs" with skillFilters/keyword/limit.
 
-12. CANDIDATE - APPLY TO JOB:
+13. CANDIDATE - APPLY TO JOB:
 If a candidate wants to apply to, submit, or send their resume for a job, call "apply_to_job" with jobId (and coverLetter when provided).
 
-13. CANDIDATE - JOB RECOMMENDATIONS:
+14. CANDIDATE - JOB RECOMMENDATIONS:
 If the candidate asks "what jobs suit me," "recommend roles," or similar, call "recommend_jobs" so they see ranked matches based on their stored skills.
 
-14. CANDIDATE - RESUME EDITOR:
+15. CANDIDATE - RESUME EDITOR:
 When the candidate wants to tweak their summary, certifications, links, skills, experience, or education without uploading a new file, call "update_resume_profile."
 
 Do not mix candidate tools with recruiter-only workflows.
@@ -145,6 +151,7 @@ Do not mix candidate tools with recruiter-only workflows.
     getCandidateDetailsTool,
     listMyInterviewsTool,
     listJobCandidatesTool,
+    updateApplicationStatusTool,
     resumeExtractionAgent.asTool({
       toolName: "resume_extractor",
       toolDescription: "Extract structured resume data"

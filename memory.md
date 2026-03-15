@@ -1,6 +1,15 @@
 ## Memory Log
-- **2026-03-12**: Captured baseline RecruitMCP architecture: Node/TypeScript CLI (`npm run dev` → `tsx src/index.ts`), SQLite `recruit.db`, orchestrator agent routing to candidate/recruiter tools, and helper services/guardrails.
-- **Schema notes**: Resume, job, application, interview tables live in `src/db/client.ts`; `ensure*` helpers keep migrations safe and are invoked from `src/core/runEngine.ts`.
-- **Agent state**: `runWithoutStreaming` (thread + context) retains CLI conversation during a single process run; no built-in persistence yet.
+- **2026-03-12**: Captured baseline RecruitMCP architecture: Node/TypeScript CLI (`npm run dev` -> `tsx src/index.ts`), SQLite `recruit.db`, orchestrator agent routing to candidate and recruiter tools, and helper services/guardrails.
+- **2026-03-14**: Confirmed current entry flow is `src/index.ts` -> `src/cli.ts` -> `src/core/runEngine.ts`. `runEngine.ts` initializes the database, runs `ensureResumeColumns`, `ensureApplicationsColumns`, and `ensureJobColumns`, and keeps a process-local `thread` plus shared `AppContext`.
+- **2026-03-14**: Authentication is OTP-based through `src/tools/auth.tool.ts` with `register_user`, `login_user`, and `verify_otp`. Successful verification stores `userId`, `role`, and `authStatus` in `AppContext`; OTPs and sessions are persisted in SQLite.
+- **2026-03-14**: Candidate workflow currently includes `resume_extractor`, `resume_advisor`, `update_resume_profile`, `list_available_jobs`, `recommend_jobs`, `apply_to_job`, and `list_my_interviews`.
+- **2026-03-14**: Recruiter workflow currently includes `create_job`, `list_my_jobs`, `find_matched_candidates`, `list_job_candidates`, `get_candidate_details`, `schedule_interview`, and `list_my_interviews`.
+- **2026-03-14**: Recruiter workflow now also includes deterministic multi-turn job drafting in `src/core/runEngine.ts` for labeled recruiter job inputs and a new `update_application_status` recruiter tool for statuses such as `rejected` and `hired`.
+- **2026-03-14**: Pre-auth email handling is now partially deterministic in `src/core/runEngine.ts`: when a user shares an email during login or recruiter entry, the engine checks whether the account already exists and starts OTP login immediately for existing users instead of incorrectly pushing them into registration.
+- **2026-03-14**: Deterministic replies injected by `src/core/runEngine.ts` must be added to `thread` using assistant content-part arrays, not plain strings. Using plain string assistant content breaks later agent turns with `TypeError: item.content.map is not a function`.
+- **Schema notes**: Tables are `users`, `login_otps`, `sessions`, `resumes`, `jobs`, `applications`, and `interviews` in `src/db/client.ts`. Resume rows support `summary`, `certifications`, and `links`; job rows support `company_name`, `location`, `employment_type`, `experience_level`, `remote_friendly`, and `contact_email`; applications support `cover_letter`.
+- **Agent routing**: `src/agents/orchestrator.agent.ts` enforces auth-aware routing. Resume questions without a file path must go through `resume_advisor`; resume uploads with a file path go through `resume_extractor`; candidate and recruiter actions are explicitly separated.
+- **Email integration**: `src/services/email.service.ts` sends mail through Resend. OTP login and interview scheduling depend on `.env` containing a valid `RESEND_API_KEY`.
+- **Operational note**: The repository memory file is `memory.md` (lowercase), even if older instructions mention `MEMORY.md`.
 
 > Update this file whenever you make major architecture or functionality changes so future runs know what shifted.
