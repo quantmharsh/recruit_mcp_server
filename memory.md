@@ -16,3 +16,6 @@
 - **2026-03-15**: Domain guardrail now auto-allows OTP/login phrases (including bare numeric codes) to prevent false rejections during authentication.
 
 > Update this file whenever you make major architecture or functionality changes so future runs know what shifted.
+
+- **2026-03-25**: Added voice interview scaffolding: `src/voice/token.service.ts` mints OpenAI Realtime client secrets; `scripts/voice-interview-demo.ts` shows a browser-side RealtimeAgent with WebRTC transport, answer-recording tool, and human handoff placeholder.
+- **2026-03-25**: Added minimal HTTP API `src/server.ts` (script `npm run api`) exposing POST `/api/voice/token` for Realtime client secrets and POST `/api/interviews/:id/answers` to store voice interview transcripts into new `interview_answers` table.

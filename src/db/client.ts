@@ -92,6 +92,18 @@ export function initDB() {
       FOREIGN KEY(recruiter_id) REFERENCES users(id),
       FOREIGN KEY(candidate_id) REFERENCES users(id)
     );
+
+    -- Voice interview answers captured from the Realtime agent.
+    CREATE TABLE IF NOT EXISTS interview_answers (
+      id INTEGER PRIMARY KEY AUTOINCREMENT,
+      interview_id INTEGER NOT NULL,
+      question TEXT NOT NULL,
+      transcript TEXT NOT NULL,
+      sentiment TEXT DEFAULT 'neutral',
+      score REAL,
+      created_at TEXT DEFAULT CURRENT_TIMESTAMP,
+      FOREIGN KEY(interview_id) REFERENCES interviews(id)
+    );
   `);
 
   console.log("✅ Database initialized");
