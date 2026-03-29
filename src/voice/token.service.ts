@@ -45,18 +45,11 @@ export async function createVoiceClientSecret(
       session: {
         type: "realtime",
         model: DEFAULT_REALTIME_MODEL,
-        user: `candidate:${input.candidateId}`,
-        // Keep only non-sensitive metadata; this comes back in webhooks if you add them later.
-        metadata: {
-          jobId: input.jobId,
-          interviewId: input.interviewId ?? null,
-          sessionId
-        },
         // Keep the system prompt minimal; richer persona can be set by the client when it connects.
         instructions:
           "You are the RecruitMCP first-round screener. Confirm identity, ask job-aligned questions, keep answers concise, and summarize results."
-      },
-      expires_in: 60 * 15 // 15 minutes is typical for invites; adjust per UX.
+      }
+      // NOTE: Some deployments reject expires_in; rely on API defaults for now.
     })
   });
 

@@ -1,5 +1,7 @@
+import "dotenv/config";
 /**
  * Minimal HTTP API for the voice interview flow.
+ * - GET  /voice                      -> serves the browser client
  * - POST /api/voice/token            -> returns an ek_* client secret for WebRTC
  * - POST /api/interviews/:id/answers -> stores one answer/transcript from the browser agent
  *
@@ -7,7 +9,9 @@
  */
 
 import http from "node:http";
-import { URL } from "node:url";
+import { URL, fileURLToPath } from "node:url";
+import path from "node:path";
+import { readFileSync } from "node:fs";
 import { db, initDB } from "./db/client.js";
 import { createVoiceClientSecret } from "./voice/token.service.js";
 
@@ -16,6 +20,16 @@ initDB();
 
 const PORT = Number(process.env.PORT ?? 4000);
 const HOST = process.env.HOST ?? "0.0.0.0";
+const __dirname = path.dirname(fileURLToPath(import.meta.url));
+
+// Voice page lives at project_root/public/voice-interview.html
+const voicePagePath = path.join(process.cwd(), "public", "voice-interview.html");
+let voiceHtml: string | null = null;
+try {
+  voiceHtml = readFileSync(voicePagePath, "utf8");
+} catch (error) {
+  console.warn("Voice page not found at", voicePagePath, error);
+}
 
 type JsonValue = Record<string, unknown>;
 
@@ -41,6 +55,14 @@ function sendJson(res: http.ServerResponse, status: number, body: JsonValue) {
   res.end(JSON.stringify(body));
 }
 
+function sendHtml(res: http.ServerResponse, status: number, body: string) {
+  res.writeHead(status, {
+    "Content-Type": "text/html; charset=utf-8",
+    "Access-Control-Allow-Origin": "*"
+  });
+  res.end(body);
+}
+
 const server = http.createServer(async (req, res) => {
   try {
     if (!req.url) {
@@ -53,10 +75,18 @@ const server = http.createServer(async (req, res) => {
     if (req.method === "OPTIONS") {
       res.writeHead(204, {
         "Access-Control-Allow-Origin": "*",
-        "Access-Control-Allow-Methods": "POST, OPTIONS",
+        "Access-Control-Allow-Methods": "GET, POST, OPTIONS",
         "Access-Control-Allow-Headers": "Content-Type"
       });
       return res.end();
+    }
+
+    if (
+      req.method === "GET" &&
+      (url.pathname === "/voice" || url.pathname === "/voice/" || url.pathname === "/voice-interview.html")
+    ) {
+      if (!voiceHtml) return sendJson(res, 500, { error: "Voice client missing on server" });
+      return sendHtml(res, 200, voiceHtml);
     }
 
     if (req.method === "POST" && url.pathname === "/api/voice/token") {

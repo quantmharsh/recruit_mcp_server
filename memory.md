@@ -19,3 +19,4 @@
 
 - **2026-03-25**: Added voice interview scaffolding: `src/voice/token.service.ts` mints OpenAI Realtime client secrets; `scripts/voice-interview-demo.ts` shows a browser-side RealtimeAgent with WebRTC transport, answer-recording tool, and human handoff placeholder.
 - **2026-03-25**: Added minimal HTTP API `src/server.ts` (script `npm run api`) exposing POST `/api/voice/token` for Realtime client secrets and POST `/api/interviews/:id/answers` to store voice interview transcripts into new `interview_answers` table.
+- **2026-03-29**: Added browser voice page `public/voice-interview.html` served via `GET /voice`; scheduling an interview now includes a candidate join link built from `PUBLIC_BASE_URL` (or HOST/PORT fallback) pointing to `/voice?candidateId=...&jobId=...&interviewId=...`, and emails include that link.

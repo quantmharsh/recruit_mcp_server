@@ -730,6 +730,22 @@ export const scheduleInterviewTool = tool({
     `
     ).run(jobId, recruiter.id, candidate.id, scheduledAt, interviewMode, details);
 
+    const insertResult = db.prepare("SELECT last_insert_rowid() AS id").get() as { id: number };
+    const interviewId = insertResult?.id;
+
+    const publicBaseUrl =
+      process.env.PUBLIC_BASE_URL ??
+      `http://${process.env.HOST ?? "localhost"}:${process.env.PORT ?? 4000}`;
+    const base = publicBaseUrl.endsWith("/") ? publicBaseUrl.slice(0, -1) : publicBaseUrl;
+    const voiceParams = new URLSearchParams({
+      candidateId: String(candidate.id),
+      jobId: String(job.id),
+      interviewId: String(interviewId),
+      candidateName: candidate.name ?? "",
+      jobTitle: job.title ?? ""
+    });
+    const voiceLink = `${base}/voice?${voiceParams.toString()}`;
+
     const candidateSubject = `Interview Scheduled: ${job.title}`;
     const recruiterSubject = `Interview Confirmation: ${candidate.name} for ${job.title}`;
 
@@ -741,6 +757,7 @@ export const scheduleInterviewTool = tool({
         <p><strong>Date/Time:</strong> ${scheduledAt}</p>
         <p><strong>Mode:</strong> ${interviewMode}</p>
         <p><strong>Interview Details:</strong> ${details}</p>
+        <p><strong>Join link (voice):</strong> <a href="${voiceLink}">${voiceLink}</a></p>
         <p>Recruiter: ${recruiter.name} (${recruiter.email})</p>
       </div>
     `;
@@ -754,6 +771,7 @@ export const scheduleInterviewTool = tool({
         <p><strong>Mode:</strong> ${interviewMode}</p>
         <p><strong>Interview Details Sent:</strong> ${details}</p>
         <p>Candidate email: ${candidate.email}</p>
+        <p><strong>Candidate join link (voice):</strong> <a href="${voiceLink}">${voiceLink}</a></p>
       </div>
     `;
 

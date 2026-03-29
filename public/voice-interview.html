@@ -1,0 +1,341 @@
+<!doctype html>
+<html lang="en">
+  <head>
+    <meta charset="UTF-8" />
+    <title>RecruitMCP Voice Interview</title>
+    <meta name="viewport" content="width=device-width, initial-scale=1" />
+    <style>
+      :root {
+        color-scheme: light;
+        --bg: #0f172a;
+        --panel: #111827;
+        --accent: #38bdf8;
+        --text: #e5e7eb;
+        --muted: #94a3b8;
+        --danger: #f87171;
+      }
+      body {
+        margin: 0;
+        font-family: "Inter", system-ui, -apple-system, sans-serif;
+        background: radial-gradient(circle at 20% 20%, #1f2937, #0b1224 50%, #0a0f1f);
+        color: var(--text);
+        min-height: 100vh;
+        display: flex;
+        align-items: center;
+        justify-content: center;
+        padding: 24px;
+      }
+      .card {
+        width: min(900px, 100%);
+        background: linear-gradient(135deg, #111827 0%, #0b1021 100%);
+        border: 1px solid #1f2937;
+        box-shadow: 0 20px 80px rgba(0, 0, 0, 0.45);
+        border-radius: 16px;
+        padding: 24px;
+      }
+      h1 {
+        margin: 0 0 8px;
+        font-size: 24px;
+        letter-spacing: -0.4px;
+      }
+      p {
+        margin: 0 0 8px;
+        color: var(--muted);
+      }
+      .row {
+        display: flex;
+        gap: 16px;
+        flex-wrap: wrap;
+        margin: 12px 0 20px;
+      }
+      .badge {
+        padding: 8px 12px;
+        border-radius: 999px;
+        background: #0f172a;
+        border: 1px solid #1f2937;
+        color: var(--muted);
+        font-size: 12px;
+      }
+      button {
+        background: var(--accent);
+        color: #0b1120;
+        font-weight: 700;
+        border: none;
+        border-radius: 12px;
+        padding: 14px 18px;
+        cursor: pointer;
+        font-size: 15px;
+        transition: transform 120ms ease, box-shadow 120ms ease, opacity 120ms ease;
+      }
+      button:disabled {
+        opacity: 0.4;
+        cursor: not-allowed;
+      }
+      button:not(:disabled):hover {
+        transform: translateY(-1px);
+        box-shadow: 0 10px 30px rgba(56, 189, 248, 0.2);
+      }
+      .panel {
+        background: #0f172a;
+        border: 1px solid #1f2937;
+        border-radius: 12px;
+        padding: 16px;
+        margin-top: 12px;
+      }
+      .status {
+        color: var(--muted);
+        font-size: 14px;
+        margin-top: 4px;
+        min-height: 20px;
+      }
+      .log {
+        font-family: "SFMono-Regular", Consolas, "Liberation Mono", monospace;
+        font-size: 13px;
+        max-height: 240px;
+        overflow: auto;
+        background: #0a0f1f;
+        border-radius: 10px;
+        padding: 12px;
+        border: 1px solid #1f2937;
+      }
+      ul {
+        margin: 0;
+        padding-left: 16px;
+        color: var(--text);
+      }
+      .error {
+        color: var(--danger);
+      }
+    </style>
+  </head>
+  <body>
+    <div class="card">
+      <h1>RecruitMCP Voice Interview</h1>
+      <p id="meta">Preparing interview…</p>
+      <div class="row">
+        <div class="badge" id="jobBadge">Job: –</div>
+        <div class="badge" id="candidateBadge">Candidate: –</div>
+        <div class="badge" id="interviewBadge">Interview: –</div>
+      </div>
+      <div class="panel">
+        <strong>Questions</strong>
+        <ul id="questionList"></ul>
+      </div>
+      <div class="row" style="align-items: center; justify-content: space-between;">
+        <div>
+          <button id="startBtn">Start Interview</button>
+          <button id="nextBtn" disabled>Ask Next Question</button>
+          <button id="stopBtn" disabled>Stop</button>
+        </div>
+        <div class="status" id="status">Waiting to start…</div>
+      </div>
+      <div class="panel">
+        <strong>Live Log</strong>
+        <div class="log" id="log"></div>
+      </div>
+    </div>
+
+    <script type="module">
+      import {
+        OpenAIRealtimeWebRTC,
+        RealtimeAgent,
+        RealtimeSession,
+        tool
+      } from "https://esm.sh/@openai/agents-realtime@0.5.1";
+
+      const params = new URLSearchParams(location.search);
+      const candidateId = Number(params.get("candidateId"));
+      const jobId = Number(params.get("jobId"));
+      const interviewId = params.get("interviewId") ? Number(params.get("interviewId")) : undefined;
+      const candidateName = params.get("candidateName") ?? "Candidate";
+      const jobTitle = params.get("jobTitle") ?? "Open Role";
+      const backendBase = `${location.origin}`;
+
+      const DEFAULT_QUESTIONS = [
+        "Give me a 60-second summary of your relevant experience for this role.",
+        "Describe a recent project you owned end-to-end. What was your personal contribution?",
+        "What is your expected notice period?",
+        "Are you comfortable with the location/remote policy stated in the job description?",
+        "Any salary expectations or constraints we should note for the recruiter?"
+      ];
+
+      const logEl = document.getElementById("log");
+      const statusEl = document.getElementById("status");
+      const startBtn = document.getElementById("startBtn");
+      const nextBtn = document.getElementById("nextBtn");
+      const stopBtn = document.getElementById("stopBtn");
+      const questionList = document.getElementById("questionList");
+
+      document.getElementById("jobBadge").textContent = `Job: ${jobId || "missing"}`;
+      document.getElementById("candidateBadge").textContent = `Candidate: ${candidateId || "missing"}`;
+      document.getElementById("interviewBadge").textContent = `Interview: ${interviewId ?? "–"}`;
+      document.getElementById("meta").textContent = `Hi ${candidateName}, we will screen you for ${jobTitle}.`;
+
+      DEFAULT_QUESTIONS.forEach((q) => {
+        const li = document.createElement("li");
+        li.textContent = q;
+        questionList.appendChild(li);
+      });
+
+      function log(line, isError = false) {
+        const div = document.createElement("div");
+        div.textContent = `[${new Date().toLocaleTimeString()}] ${line}`;
+        if (isError) div.classList.add("error");
+        logEl.appendChild(div);
+        logEl.scrollTop = logEl.scrollHeight;
+      }
+
+      function setStatus(text) {
+        statusEl.textContent = text;
+      }
+
+      async function fetchClientSecret() {
+        if (!candidateId || !jobId) {
+          throw new Error("candidateId and jobId are required in the URL.");
+        }
+        const res = await fetch(`${backendBase}/api/voice/token`, {
+          method: "POST",
+          headers: { "Content-Type": "application/json" },
+          body: JSON.stringify({
+            candidateId,
+            jobId,
+            interviewId: interviewId ?? undefined
+          })
+        });
+        if (!res.ok) {
+          const text = await res.text();
+          throw new Error(`Token request failed (${res.status}): ${text}`);
+        }
+        const data = await res.json();
+        return data.token;
+      }
+
+      function buildAgent(clientSecret) {
+        const recordAnswer = tool({
+          name: "record_answer",
+          description: "Persist one interview answer to the backend.",
+          parameters: {
+            type: "object",
+            properties: {
+              question: { type: "string" },
+              transcript: { type: "string" },
+              sentiment: { type: "string", enum: ["positive", "neutral", "negative"] },
+              score: { type: "number", minimum: 0, maximum: 10 }
+            },
+            required: ["question", "transcript"]
+          },
+          execute: async ({ question, transcript, sentiment, score }) => {
+            if (!interviewId) {
+              log("No interviewId provided; skipping answer submission.", true);
+              return;
+            }
+            try {
+              await fetch(`${backendBase}/api/interviews/${interviewId}/answers`, {
+                method: "POST",
+                headers: { "Content-Type": "application/json" },
+                body: JSON.stringify({
+                  question,
+                  transcript,
+                  sentiment: sentiment ?? "neutral",
+                  score: score ?? null,
+                  candidateName,
+                  jobTitle
+                })
+              });
+              log(`Saved answer: ${question}`);
+            } catch (error) {
+              log(`Failed to save answer: ${error.message}`, true);
+            }
+          }
+        });
+
+        const handoffTool = tool({
+          name: "handoff_to_human",
+          description: "Escalate to a live recruiter when requested.",
+          parameters: { type: "object", properties: {} },
+          execute: async () => {
+            log("Human handoff requested.");
+          }
+        });
+
+        const agent = new RealtimeAgent({
+          name: "RecruitMCP Voice Screener",
+          instructions:
+            "You are the first-round HR screener. Be concise, friendly, confirm identity, and keep answers under 90 seconds. Paraphrase key facts.",
+          voice: "alloy",
+          tools: [recordAnswer, handoffTool]
+        });
+
+        const transport = new OpenAIRealtimeWebRTC();
+        const session = new RealtimeSession(agent, { transport });
+
+        async function start() {
+          setStatus("Connecting to Realtime…");
+          log("Requesting client secret…");
+          await session.connect({ apiKey: clientSecret });
+          setStatus("Connected. Asking first question.");
+          session.sendMessage({
+            type: "message",
+            role: "user",
+            content: [
+              {
+                type: "input_text",
+                text: `Hi ${candidateName}, I'm your RecruitMCP assistant for ${jobTitle}.`
+              },
+              { type: "input_text", text: DEFAULT_QUESTIONS[0] }
+            ]
+          });
+        }
+
+        return { session, agent, start };
+      }
+
+      let client;
+      let questionIndex = 0;
+
+      startBtn.addEventListener("click", async () => {
+        startBtn.disabled = true;
+        nextBtn.disabled = true;
+        stopBtn.disabled = true;
+        try {
+          setStatus("Requesting token…");
+          const token = await fetchClientSecret();
+          log("Received client secret.");
+          client = buildAgent(token);
+          await client.start();
+          setStatus("Interview in progress.");
+          nextBtn.disabled = false;
+          stopBtn.disabled = false;
+          questionIndex = 1;
+        } catch (error) {
+          log(error.message, true);
+          setStatus("Failed to start. See log.");
+          startBtn.disabled = false;
+        }
+      });
+
+      nextBtn.addEventListener("click", () => {
+        if (!client) return;
+        const question = DEFAULT_QUESTIONS[questionIndex];
+        if (!question) return log("No more questions.");
+        client.session.sendMessage({
+          type: "message",
+          role: "user",
+          content: [{ type: "input_text", text: question }]
+        });
+        questionIndex += 1;
+        setStatus(`Asked question ${questionIndex}.`);
+      });
+
+      stopBtn.addEventListener("click", () => {
+        if (!client) return;
+        client.session.disconnect();
+        setStatus("Disconnected.");
+        log("Session disconnected.");
+        startBtn.disabled = false;
+        nextBtn.disabled = true;
+        stopBtn.disabled = true;
+      });
+    </script>
+  </body>
+</html>
