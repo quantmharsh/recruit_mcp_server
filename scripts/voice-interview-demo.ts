@@ -124,11 +124,11 @@ export function createVoiceInterviewAgent(options: {
   // Return handles so the caller can bind UI buttons easily.
   return {
     agent,
-    session,
+    session, 
     transport,
     start,
     askNext: (index: number) => {
-      const question = DEFAULT_QUESTIONS[index];
+      const question = DEFAULT_QUESTIONS[index];   
       if (!question) return;
       session.sendUserMessageContent([{ type: "input_text", text: question }]);
     },

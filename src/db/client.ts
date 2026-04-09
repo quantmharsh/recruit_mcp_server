@@ -104,6 +104,24 @@ export function initDB() {
       created_at TEXT DEFAULT CURRENT_TIMESTAMP,
       FOREIGN KEY(interview_id) REFERENCES interviews(id)
     );
+
+    -- One row per interview once the voice interview is completed and summarized.
+    -- Stored separately to avoid altering the existing interviews schema on older DB files.
+    CREATE TABLE IF NOT EXISTS interview_reports (
+      id INTEGER PRIMARY KEY AUTOINCREMENT,
+      interview_id INTEGER NOT NULL UNIQUE,
+      summary TEXT NOT NULL,
+      suitability TEXT NOT NULL,
+      overall_score REAL,
+      highlights TEXT DEFAULT '[]',
+      review_status TEXT DEFAULT 'pending',
+      review_decision TEXT,
+      emailed_to_recruiter_at TEXT,
+      emailed_to_candidate_at TEXT,
+      created_at TEXT DEFAULT CURRENT_TIMESTAMP,
+      updated_at TEXT DEFAULT CURRENT_TIMESTAMP,
+      FOREIGN KEY(interview_id) REFERENCES interviews(id)
+    );
   `);
 
   console.log("✅ Database initialized");

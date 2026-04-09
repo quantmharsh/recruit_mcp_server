@@ -15,6 +15,7 @@ import {
   ensureResumeColumns,
   initDB
 } from "../db/client.js";
+import { sendEmail } from "../services/email.service.js";
 
 initDB();
 ensureResumeColumns(); // Keep resume enrichment columns available on older SQLite files.
@@ -116,6 +117,174 @@ function formatRecruiterDraftSummary(appContext: AppContext) {
   if (draft.contactEmail) lines.push(`- Contact Email: ${draft.contactEmail}`);
 
   return lines.join("\n");
+}
+
+function parseInterviewDecision(input: string) {
+  const normalized = input.trim().toLowerCase();
+  const match = normalized.match(/\b(next\s*round|reject|remind\s*later)\b.*\binterview\s+(\d+)\b/);
+  if (!match) return null;
+
+  const action = match[1].replace(/\s+/g, "_");
+  const interviewId = Number(match[2]);
+  if (!interviewId) return null;
+  if (action !== "next_round" && action !== "reject" && action !== "remind_later") return null;
+  return { action, interviewId };
+}
+
+async function maybeHandleRecruiterInterviewDecision(input: string) {
+  if (context.authStatus !== "AUTHENTICATED" || context.role !== "recruiter" || !context.userId) {
+    return false;
+  }
+
+  const parsed = parseInterviewDecision(input);
+  if (!parsed) return false;
+
+  const row = context.db
+    .prepare(
+      `
+      SELECT i.id AS interview_id, i.job_id, i.recruiter_id, i.candidate_id,
+             j.title AS job_title,
+             cu.name AS candidate_name, cu.email AS candidate_email
+      FROM interviews i
+      JOIN jobs j ON j.id = i.job_id
+      JOIN users cu ON cu.id = i.candidate_id
+      WHERE i.id = ? AND i.recruiter_id = ?
+    `
+    )
+    .get(parsed.interviewId, context.userId) as
+    | {
+        interview_id: number;
+        job_id: number;
+        recruiter_id: number;
+        candidate_id: number;
+        job_title: string;
+        candidate_name: string;
+        candidate_email: string;
+      }
+    | undefined;
+
+  if (!row) {
+    pushAssistantMessage("I couldn't find that interview for your recruiter account.");
+    return true;
+  }
+
+  if (parsed.action === "remind_later") {
+    // Minimal implementation for now: keep report pending; recruiter can decide later.
+    pushAssistantMessage(
+      `Okay. I will remind you later about Interview ${row.interview_id} (decision pending).`
+    );
+    return true;
+  }
+
+  const decision = parsed.action; // next_round | reject
+  context.db
+    .prepare(
+      `
+      UPDATE interview_reports
+      SET review_status = 'decided',
+          review_decision = ?,
+          updated_at = CURRENT_TIMESTAMP
+      WHERE interview_id = ?
+    `
+    )
+    .run(decision, row.interview_id);
+
+  const newAppStatus = decision === "reject" ? "rejected" : "next_round";
+  context.db
+    .prepare(
+      `
+      UPDATE applications
+      SET status = ?
+      WHERE job_id = ?
+        AND resume_id IN (SELECT id FROM resumes WHERE user_id = ?)
+    `
+    )
+    .run(newAppStatus, row.job_id, row.candidate_id);
+
+  if (process.env.RESEND_API_KEY) {
+    const subject =
+      decision === "reject"
+        ? `Update on your interview: ${row.job_title}`
+        : `Next round: ${row.job_title}`;
+    const html =
+      decision === "reject"
+        ? `
+          <div style="font-family: Arial, sans-serif;">
+            <p>Hello ${row.candidate_name},</p>
+            <p>Thanks for interviewing for <strong>${row.job_title}</strong>.</p>
+            <p>After review, we will not be moving forward at this time. We appreciate your time and wish you the best.</p>
+          </div>
+        `
+        : `
+          <div style="font-family: Arial, sans-serif;">
+            <p>Hello ${row.candidate_name},</p>
+            <p>Thanks for interviewing for <strong>${row.job_title}</strong>.</p>
+            <p>We’d like to proceed to the next round. The recruiter will share next steps shortly.</p>
+          </div>
+        `;
+    try {
+      await sendEmail({ to: row.candidate_email, subject, html });
+    } catch (error) {
+      console.error("Failed to email candidate decision", error);
+    }
+  }
+
+  pushAssistantMessage(
+    decision === "reject"
+      ? `Marked Interview ${row.interview_id} as rejected and updated the application status.`
+      : `Marked Interview ${row.interview_id} as next round and updated the application status.`
+  );
+  return true;
+}
+
+function maybeSurfaceRecruiterPendingReviews() {
+  if (context.authStatus !== "AUTHENTICATED" || context.role !== "recruiter" || !context.userId) {
+    return;
+  }
+
+  const rows = context.db
+    .prepare(
+      `
+      SELECT r.interview_id,
+             r.suitability,
+             r.overall_score,
+             j.title AS job_title,
+             cu.name AS candidate_name,
+             cu.email AS candidate_email
+      FROM interview_reports r
+      JOIN interviews i ON i.id = r.interview_id
+      JOIN jobs j ON j.id = i.job_id
+      JOIN users cu ON cu.id = i.candidate_id
+      WHERE i.recruiter_id = ?
+        AND r.review_status = 'pending'
+      ORDER BY r.updated_at DESC
+      LIMIT 3
+    `
+    )
+    .all(context.userId) as Array<{
+    interview_id: number;
+    suitability: string;
+    overall_score: number | null;
+    job_title: string;
+    candidate_name: string;
+    candidate_email: string;
+  }>;
+
+  if (!rows.length) return;
+
+  const lines: string[] = [];
+  lines.push("You have completed voice interviews awaiting a decision:");
+  for (const row of rows) {
+    const scoreText = row.overall_score === null ? "N/A" : `${row.overall_score.toFixed(1)}/10`;
+    lines.push(
+      `- Interview ${row.interview_id}: ${row.candidate_name} (${row.candidate_email}) for "${row.job_title}" | score ${scoreText} | ${row.suitability}`
+    );
+  }
+  lines.push(
+    "Reply with: `next round interview <id>` or `reject interview <id>` or `remind later interview <id>`."
+  );
+
+  pushAssistantMessage(lines.join("\n"));
 }
 
 async function maybeHandleRecruiterJobDraft(input: string) {
@@ -260,6 +429,10 @@ export async function runWithoutStreaming(agent: any, input: string) {
     return;
   }
 
+  if (await maybeHandleRecruiterInterviewDecision(input)) {
+    return;
+  }
+
   if (await maybeHandleRecruiterJobDraft(input)) {
     return;
   }
@@ -319,6 +492,11 @@ export async function runWithoutStreaming(agent: any, input: string) {
 
     console.log("\nAssistant:", result.finalOutput, "\n");
     thread = result.history;
+
+    if (context.justAuthenticated) {
+      context.justAuthenticated = false;
+      maybeSurfaceRecruiterPendingReviews();
+    }
   } catch (e) {
     if (e instanceof InputGuardrailTripwireTriggered) {
       console.log("\nAssistant: Sorry, I can only help with recruitment-related tasks.\n");

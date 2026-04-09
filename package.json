@@ -6,7 +6,10 @@
   "type": "module",
   "scripts": {
     "dev": "tsx src/index.ts",
-    "api": "tsx src/server.ts"
+    "api": "tsx src/server.ts",
+    "seed:demo": "tsx scripts/db-seed-demo.ts",
+    "db:peek": "tsx scripts/db-peek.ts",
+    "db:sql": "tsx scripts/db-sql.ts"
   },
   "author": "",
   "license": "ISC",

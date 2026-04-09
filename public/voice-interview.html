@@ -124,7 +124,6 @@
       <div class="row" style="align-items: center; justify-content: space-between;">
         <div>
           <button id="startBtn">Start Interview</button>
-          <button id="nextBtn" disabled>Ask Next Question</button>
           <button id="stopBtn" disabled>Stop</button>
         </div>
         <div class="status" id="status">Waiting to start…</div>
@@ -151,18 +150,15 @@
       const jobTitle = params.get("jobTitle") ?? "Open Role";
       const backendBase = `${location.origin}`;
 
-      const DEFAULT_QUESTIONS = [
-        "Give me a 60-second summary of your relevant experience for this role.",
-        "Describe a recent project you owned end-to-end. What was your personal contribution?",
-        "What is your expected notice period?",
-        "Are you comfortable with the location/remote policy stated in the job description?",
-        "Any salary expectations or constraints we should note for the recruiter?"
+      const WARMUP_QUESTIONS = [
+        "Before we start, how has your day been so far?",
+        "Quick warm-up: what’s something you’ve learned recently (work or non-work)?",
+        "To help you get comfortable: what kind of work do you enjoy the most?"
       ];
 
       const logEl = document.getElementById("log");
       const statusEl = document.getElementById("status");
       const startBtn = document.getElementById("startBtn");
-      const nextBtn = document.getElementById("nextBtn");
       const stopBtn = document.getElementById("stopBtn");
       const questionList = document.getElementById("questionList");
 
@@ -171,11 +167,14 @@
       document.getElementById("interviewBadge").textContent = `Interview: ${interviewId ?? "–"}`;
       document.getElementById("meta").textContent = `Hi ${candidateName}, we will screen you for ${jobTitle}.`;
 
-      DEFAULT_QUESTIONS.forEach((q) => {
-        const li = document.createElement("li");
-        li.textContent = q;
-        questionList.appendChild(li);
-      });
+      function setQuestions(questions) {
+        questionList.textContent = "";
+        questions.forEach((q) => {
+          const li = document.createElement("li");
+          li.textContent = q;
+          questionList.appendChild(li);
+        });
+      }
 
       function log(line, isError = false) {
         const div = document.createElement("div");
@@ -210,7 +209,55 @@
         return data.token;
       }
 
-      function buildAgent(clientSecret) {
+      async function fetchInterviewContext() {
+        if (!interviewId) return null;
+        const res = await fetch(`${backendBase}/api/interviews/${interviewId}/context`);
+        if (!res.ok) return null;
+        return await res.json();
+      }
+
+      function chooseResumeQuestions(context) {
+        const resumeSkills = context?.resume?.skills ?? [];
+        const requiredSkills = context?.job?.requiredSkills ?? [];
+        const overlap = resumeSkills.filter((s) =>
+          requiredSkills.map((x) => String(x).toLowerCase()).includes(String(s).toLowerCase())
+        );
+        const picks = (overlap.length ? overlap : resumeSkills).slice(0, 2);
+        if (picks.length === 0) {
+          return [
+            "Tell me about a recent project you worked on and your personal contribution.",
+            "What’s one technical strength you bring to this role?"
+          ];
+        }
+        return picks.map(
+          (skill) =>
+            `From your resume, I saw ${skill}. Can you share a concrete example of using it in a project?`
+        );
+      }
+
+      function chooseJobQuestions(context) {
+        const requiredSkills = context?.job?.requiredSkills ?? [];
+        const picks = requiredSkills.slice(0, 2);
+        if (picks.length === 0) {
+          return [
+            `What interests you about the ${jobTitle} role?`,
+            "What would you focus on in your first 30 days?"
+          ];
+        }
+        return picks.map(
+          (skill) =>
+            `This role needs ${skill}. What’s your experience level with it, and what’s one challenge you’ve handled using it?`
+        );
+      }
+
+      function buildScriptedQuestions(context) {
+        const warmup = WARMUP_QUESTIONS[Number(interviewId ?? 0) % WARMUP_QUESTIONS.length];
+        const resumeQs = chooseResumeQuestions(context);
+        const jobQs = chooseJobQuestions(context);
+        return [warmup, ...resumeQs, ...jobQs];
+      }
+
+      function buildAgent(clientSecret, scriptedQuestions) {
         const recordAnswer = tool({
           name: "record_answer",
           description: "Persist one interview answer to the backend.",
@@ -249,21 +296,48 @@
           }
         });
 
-        const handoffTool = tool({
-          name: "handoff_to_human",
-          description: "Escalate to a live recruiter when requested.",
+        const completeInterview = tool({
+          name: "complete_interview",
+          description: "Mark the interview as completed and trigger summary emails.",
           parameters: { type: "object", properties: {} },
           execute: async () => {
-            log("Human handoff requested.");
+            if (!interviewId) {
+              log("No interviewId provided; cannot complete interview.", true);
+              return;
+            }
+            try {
+              const res = await fetch(`${backendBase}/api/interviews/${interviewId}/complete`, {
+                method: "POST",
+                headers: { "Content-Type": "application/json" },
+                body: JSON.stringify({})
+              });
+              const data = await res.json();
+              if (!res.ok) {
+                log(`Complete failed: ${JSON.stringify(data)}`, true);
+                return;
+              }
+              log(
+                `Interview completed. Suitability=${data.suitability}, score=${
+                  data.overallScore ?? "N/A"
+                }. Emailed recruiter=${data.emailed?.recruiter}, candidate=${data.emailed?.candidate}.`
+              );
+            } catch (error) {
+              log(`Failed to complete interview: ${error.message}`, true);
+            }
           }
         });
 
         const agent = new RealtimeAgent({
           name: "RecruitMCP Voice Screener",
-          instructions:
-            "You are the first-round HR screener. Be concise, friendly, confirm identity, and keep answers under 90 seconds. Paraphrase key facts.",
+          instructions: [
+            "You are a first-round voice screener.",
+            "Be warm but extremely concise: do not add follow-up questions unless the candidate asks.",
+            "Follow the provided question script exactly in order and ask only those questions.",
+            "After each answer, call record_answer with the question text and the candidate's answer transcript.",
+            "After the last question is answered, thank the candidate, end the interview, then call complete_interview."
+          ].join(" "),
           voice: "alloy",
-          tools: [recordAnswer, handoffTool]
+          tools: [recordAnswer, completeInterview]
         });
 
         const transport = new OpenAIRealtimeWebRTC();
@@ -273,17 +347,17 @@
           setStatus("Connecting to Realtime…");
           log("Requesting client secret…");
           await session.connect({ apiKey: clientSecret });
-          setStatus("Connected. Asking first question.");
+          setStatus("Connected. Starting scripted interview.");
+
+          const scriptText =
+            `Candidate name: ${candidateName}. Role: ${jobTitle}.\n` +
+            `Ask these questions in order (ask one, wait for answer, then next):\n` +
+            scriptedQuestions.map((q, idx) => `${idx + 1}. ${q}`).join("\n");
+
           session.sendMessage({
             type: "message",
             role: "user",
-            content: [
-              {
-                type: "input_text",
-                text: `Hi ${candidateName}, I'm your RecruitMCP assistant for ${jobTitle}.`
-              },
-              { type: "input_text", text: DEFAULT_QUESTIONS[0] }
-            ]
+            content: [{ type: "input_text", text: scriptText }]
           });
         }
 
@@ -291,40 +365,31 @@
       }
 
       let client;
-      let questionIndex = 0;
 
       startBtn.addEventListener("click", async () => {
         startBtn.disabled = true;
-        nextBtn.disabled = true;
         stopBtn.disabled = true;
         try {
+          if (!interviewId) {
+            throw new Error("Missing interviewId in the URL. Ask the recruiter for a valid invite link.");
+          }
+          setStatus("Loading interview context…");
+          const context = await fetchInterviewContext();
+          const scriptedQuestions = buildScriptedQuestions(context);
+          setQuestions(scriptedQuestions);
+
           setStatus("Requesting token…");
           const token = await fetchClientSecret();
           log("Received client secret.");
-          client = buildAgent(token);
+          client = buildAgent(token, scriptedQuestions);
           await client.start();
           setStatus("Interview in progress.");
-          nextBtn.disabled = false;
           stopBtn.disabled = false;
-          questionIndex = 1;
         } catch (error) {
           log(error.message, true);
           setStatus("Failed to start. See log.");
           startBtn.disabled = false;
         }
-      });
-
-      nextBtn.addEventListener("click", () => {
-        if (!client) return;
-        const question = DEFAULT_QUESTIONS[questionIndex];
-        if (!question) return log("No more questions.");
-        client.session.sendMessage({
-          type: "message",
-          role: "user",
-          content: [{ type: "input_text", text: question }]
-        });
-        questionIndex += 1;
-        setStatus(`Asked question ${questionIndex}.`);
       });
 
       stopBtn.addEventListener("click", () => {
@@ -333,8 +398,26 @@
         setStatus("Disconnected.");
         log("Session disconnected.");
         startBtn.disabled = false;
-        nextBtn.disabled = true;
         stopBtn.disabled = true;
+
+        // Best-effort completion if the model didn't call the complete tool.
+        if (interviewId) {
+          fetch(`${backendBase}/api/interviews/${interviewId}/complete`, {
+            method: "POST",
+            headers: { "Content-Type": "application/json" },
+            body: JSON.stringify({})
+          })
+            .then((r) => r.json().then((j) => ({ ok: r.ok, j })))
+            .then(({ ok, j }) => {
+              if (!ok) return log(`Complete failed: ${JSON.stringify(j)}`, true);
+              log(
+                `Interview completed. Suitability=${j.suitability}, score=${
+                  j.overallScore ?? "N/A"
+                }. Emailed recruiter=${j.emailed?.recruiter}, candidate=${j.emailed?.candidate}.`
+              );
+            })
+            .catch((e) => log(`Failed to complete interview: ${e.message}`, true));
+        }
       });
     </script>
   </body>

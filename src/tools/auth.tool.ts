@@ -39,6 +39,12 @@ export async function startOtpLogin(appContext: AppContext, email: string) {
   const otp = generateOtp();
   const expiresAt = new Date(Date.now() + 5 * 60 * 1000).toISOString();
 
+  // DEMO ONLY: printing OTPs to logs is insecure. Keep this behind an explicit env flag
+  // so production runs do not accidentally leak credentials.
+  if (process.env.DEMO_LOG_OTPS === "1") {
+    console.log(`[DEMO] OTP for ${email}: ${otp} (expires ${expiresAt})`);
+  }
+
   appContext.db
     .prepare(
       `
@@ -147,6 +153,7 @@ export const verifyOtpTool = tool({
     ctx!.context.role = user.role;
     ctx!.context.authStatus = "AUTHENTICATED";
     ctx!.context.pendingEmail = undefined;
+    ctx!.context.justAuthenticated = true;
 
     return `Login successful. Welcome ${user.name}!`;
   }

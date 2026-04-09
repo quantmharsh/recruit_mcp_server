@@ -33,4 +33,8 @@ export interface AppContext {
   // Multi-turn recruiter job posting is staged here until every required field
   // has been collected and we can create the job deterministically.
   recruiterJobDraft?: RecruiterJobDraft;
+
+  // Transient flag set on successful OTP verification so the engine can surface
+  // reminders/next-actions immediately after login.
+  justAuthenticated?: boolean;
 }
