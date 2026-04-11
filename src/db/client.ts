@@ -122,6 +122,17 @@ export function initDB() {
       updated_at TEXT DEFAULT CURRENT_TIMESTAMP,
       FOREIGN KEY(interview_id) REFERENCES interviews(id)
     );
+
+    -- Optional, on-demand LLM "deep summary" for an interview report.
+    -- Kept in a separate table so the base workflow stays deterministic/cheap.
+    CREATE TABLE IF NOT EXISTS interview_reports_llm (
+      id INTEGER PRIMARY KEY AUTOINCREMENT,
+      interview_id INTEGER NOT NULL UNIQUE,
+      model TEXT NOT NULL,
+      report_json TEXT NOT NULL,
+      created_at TEXT DEFAULT CURRENT_TIMESTAMP,
+      FOREIGN KEY(interview_id) REFERENCES interviews(id)
+    );
   `);
 
   console.log("✅ Database initialized");

@@ -16,6 +16,7 @@ import {
   initDB
 } from "../db/client.js";
 import { sendEmail } from "../services/email.service.js";
+import { generateAndStoreDeepInterviewSummary } from "../voice/deep-summary.service.js";
 
 initDB();
 ensureResumeColumns(); // Keep resume enrichment columns available on older SQLite files.
@@ -237,6 +238,94 @@ async function maybeHandleRecruiterInterviewDecision(input: string) {
   return true;
 }
 
+function parseDeepSummaryRequest(input: string) {
+  const normalized = input.trim().toLowerCase();
+  const match = normalized.match(/\b(deep|detailed)\b.*\b(summary|summarize)\b.*\binterview\s+(\d+)\b/);
+  if (!match) return null;
+  const interviewId = Number(match[3]);
+  if (!interviewId) return null;
+  return { interviewId };
+}
+
+async function maybeHandleDeepSummaryRequest(input: string) {
+  if (context.authStatus !== "AUTHENTICATED" || context.role !== "recruiter" || !context.userId) {
+    return false;
+  }
+
+  const parsed = parseDeepSummaryRequest(input);
+  if (!parsed) return false;
+
+  // Ensure this recruiter owns the interview.
+  const owned = context.db
+    .prepare("SELECT id FROM interviews WHERE id = ? AND recruiter_id = ?")
+    .get(parsed.interviewId, context.userId) as { id: number } | undefined;
+  if (!owned) {
+    pushAssistantMessage("I couldn't find that interview for your recruiter account.");
+    return true;
+  }
+
+  pushAssistantMessage("Generating a deep summary (LLM) from the saved interview answers…");
+
+  try {
+    const report = await generateAndStoreDeepInterviewSummary({ interviewId: parsed.interviewId });
+
+    const lines: string[] = [];
+    lines.push(`Deep summary for Interview ${parsed.interviewId} (model: ${report.model})`);
+    lines.push(`Suitability: ${report.suitability}`);
+    lines.push(`Overall score: ${report.overallScore.toFixed(1)}/10`);
+    lines.push("");
+    lines.push("Strengths:");
+    for (const s of report.strengths) lines.push(`- ${s}`);
+    if (report.concerns.length) {
+      lines.push("");
+      lines.push("Concerns:");
+      for (const c of report.concerns) lines.push(`- ${c}`);
+    }
+    if (report.nextSteps.length) {
+      lines.push("");
+      lines.push("Next steps:");
+      for (const n of report.nextSteps) lines.push(`- ${n}`);
+    }
+
+    // Optional: email recruiter a copy so it becomes "actionable output", not just chat text.
+    if (process.env.RESEND_API_KEY) {
+      const recruiter = context.db
+        .prepare("SELECT email, name FROM users WHERE id = ?")
+        .get(context.userId) as { email: string; name: string } | undefined;
+      if (recruiter?.email) {
+        const html = `
+          <div style="font-family: Arial, sans-serif;">
+            <h2>Deep Interview Summary</h2>
+            <p><strong>Interview ID:</strong> ${parsed.interviewId}</p>
+            <p><strong>Suitability:</strong> ${report.suitability}</p>
+            <p><strong>Overall score:</strong> ${report.overallScore.toFixed(1)}/10</p>
+            <h3>Strengths</h3>
+            <ul>${report.strengths.map((x) => `<li>${x}</li>`).join("")}</ul>
+            ${
+              report.concerns.length
+                ? `<h3>Concerns</h3><ul>${report.concerns.map((x) => `<li>${x}</li>`).join("")}</ul>`
+                : ""
+            }
+            <h3>Next steps</h3>
+            <ul>${report.nextSteps.map((x) => `<li>${x}</li>`).join("")}</ul>
+          </div>
+        `;
+        await sendEmail({
+          to: recruiter.email,
+          subject: `Deep summary: Interview ${parsed.interviewId}`,
+          html
+        });
+      }
+    }
+
+    pushAssistantMessage(lines.join("\n"));
+  } catch (error) {
+    pushAssistantMessage(`Deep summary failed: ${(error as Error).message}`);
+  }
+
+  return true;
+}
+
 function maybeSurfaceRecruiterPendingReviews() {
   if (context.authStatus !== "AUTHENTICATED" || context.role !== "recruiter" || !context.userId) {
     return;
@@ -248,6 +337,7 @@ function maybeSurfaceRecruiterPendingReviews() {
       SELECT r.interview_id,
              r.suitability,
              r.overall_score,
+             llm.id AS has_deep_summary,
              j.title AS job_title,
              cu.name AS candidate_name,
              cu.email AS candidate_email
@@ -255,6 +345,7 @@ function maybeSurfaceRecruiterPendingReviews() {
       JOIN interviews i ON i.id = r.interview_id
       JOIN jobs j ON j.id = i.job_id
       JOIN users cu ON cu.id = i.candidate_id
+      LEFT JOIN interview_reports_llm llm ON llm.interview_id = r.interview_id
       WHERE i.recruiter_id = ?
         AND r.review_status = 'pending'
       ORDER BY r.updated_at DESC
@@ -265,6 +356,7 @@ function maybeSurfaceRecruiterPendingReviews() {
     interview_id: number;
     suitability: string;
     overall_score: number | null;
+    has_deep_summary: number | null;
     job_title: string;
     candidate_name: string;
     candidate_email: string;
@@ -276,13 +368,15 @@ function maybeSurfaceRecruiterPendingReviews() {
   lines.push("You have completed voice interviews awaiting a decision:");
   for (const row of rows) {
     const scoreText = row.overall_score === null ? "N/A" : `${row.overall_score.toFixed(1)}/10`;
+    const deepText = row.has_deep_summary ? "deep summary: yes" : "deep summary: no";
     lines.push(
-      `- Interview ${row.interview_id}: ${row.candidate_name} (${row.candidate_email}) for "${row.job_title}" | score ${scoreText} | ${row.suitability}`
+      `- Interview ${row.interview_id}: ${row.candidate_name} (${row.candidate_email}) for "${row.job_title}" | score ${scoreText} | ${row.suitability} | ${deepText}`
     );
   }
   lines.push(
     "Reply with: `next round interview <id>` or `reject interview <id>` or `remind later interview <id>`."
   );
+  lines.push("For more detail, ask: `deep summarize interview <id>`.");
 
   pushAssistantMessage(lines.join("\n"));
 }
@@ -426,6 +520,10 @@ export async function runWithoutStreaming(agent: any, input: string) {
   context.lastSavedResume = undefined;
 
   if (await maybeHandleDeterministicAuth(input)) {
+    return;
+  }
+
+  if (await maybeHandleDeepSummaryRequest(input)) {
     return;
   }
 
